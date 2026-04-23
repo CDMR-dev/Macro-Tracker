@@ -517,14 +517,24 @@ export default function App() {
   const handleDetected = useCallback(async (barcode) => {
     setScanning(false); setBarcodeLoading(true); setError('');
     const result = await lookupBarcode(barcode);
-    if (result) { addEntry(result, 'barcode'); }
-    else { setError(`Barcode not found. Try typing the product name.`); }
+    if (result) {
+      const entry = { ...result, id: Date.now(), source: 'barcode' };
+      setDiary(prev => {
+        const todayList = prev[todayStr()] || [];
+        const newDiary = { ...prev, [todayStr()]: [...todayList, entry] };
+        if (user) {
+          dbSaveDay(user.id, todayStr(), newDiary[todayStr()]).catch(() => {});
+        } else {
+          try { localStorage.setItem(LOCAL_KEY, JSON.stringify(newDiary)); } catch {}
+        }
+        return newDiary;
+      });
+    } else {
+      setError('Barcode not found. Try typing the product name.');
+    }
     setBarcodeLoading(false);
-  }, [diary, today, todayEntries]);
-
-  const btn = (onClick, children, style = {}) => (
-    <button onClick={onClick} style={{ border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: 'monospace', ...style }}>{children}</button>
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   return (
     <>
