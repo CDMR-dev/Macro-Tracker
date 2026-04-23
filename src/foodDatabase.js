@@ -21,7 +21,7 @@ export const FOOD_DB = {
   "parsnip": [75,1.8,18,0.3], "leek": [61,1.5,14,0.3], "garlic": [149,6.4,33,0.5],
   "ginger": [80,1.8,18,0.8], "butternut squash": [45,1,12,0.1], "aubergine": [25,1,6,0.2],
   "rocket": [25,2.6,3.6,0.7], "spring onion": [32,1.8,7.3,0.2], "fennel": [31,1.2,7.3,0.2],
-  "kale": [49,4.3,9,0.9], "swede": [38,1.1,9,0.1], "turnip": [28,0.9,6.4,0.1],
+  "swede": [38,1.1,9,0.1], "turnip": [28,0.9,6.4,0.1],
   // Meat & Fish
   "chicken breast": [165,31,0,3.6], "chicken thigh": [209,26,0,11],
   "beef mince": [254,17,0,20], "beef steak": [271,26,0,18],
