@@ -67,28 +67,45 @@ async function searchOFF(query) {
     });
 }
 
+function parseOFFProduct(p) {
+  const n = p.nutriments || {};
+  // Try energy-kcal first, fall back to energy (kJ) converted
+  const cal100 = n['energy-kcal_100g'] ?? n['energy-kcal'] ??
+    (n['energy_100g'] ? n['energy_100g'] / 4.184 : null) ??
+    (n['energy'] ? n['energy'] / 4.184 : 0);
+  const pro100 = n['proteins_100g'] ?? n['proteins'] ?? 0;
+  const carb100 = n['carbohydrates_100g'] ?? n['carbohydrates'] ?? 0;
+  const fat100 = n['fat_100g'] ?? n['fat'] ?? 0;
+  const servingG = parseFloat(p.serving_quantity) || 100;
+  const f = servingG / 100;
+  const lbl = p.serving_size ? ` (${p.serving_size})` : ' (per 100g)';
+  const name = p.product_name_en || p.product_name_gb || p.product_name || 'Unknown product';
+  const brand = p.brands ? p.brands.split(',')[0].trim() + ' ' : '';
+  return {
+    food: brand + name + lbl,
+    calories: Math.round(cal100 * f),
+    protein: Math.round(pro100 * f * 10) / 10,
+    carbs: Math.round(carb100 * f * 10) / 10,
+    fat: Math.round(fat100 * f * 10) / 10,
+    source: 'barcode',
+  };
+}
+
 async function lookupBarcode(barcode) {
-  for (const url of [
-    `https://uk.openfoodfacts.org/api/v0/product/${barcode}.json`,
+  // Try multiple endpoints — UK first, then world, with full nutriment fields
+  const endpoints = [
+    `https://uk.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_en,product_name_gb,brands,nutriments,serving_quantity,serving_size`,
+    `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,product_name_en,product_name_gb,brands,nutriments,serving_quantity,serving_size`,
+    // v0 fallback
     `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-  ]) {
+  ];
+  for (const url of endpoints) {
     try {
-      const r = await fetch(url);
+      const r = await fetch(url, { headers: { 'User-Agent': 'MacroTracker/1.0 (https://github.com/CDMR-dev/Macro-Tracker)' } });
       const d = await r.json();
-      if (d.status === 1 && d.product) {
-        const p = d.product;
-        const n = p.nutriments || {};
-        const servingG = parseFloat(p.serving_quantity) || 100;
-        const f = servingG / 100;
-        const lbl = p.serving_size ? ` (${p.serving_size})` : ' (per 100g)';
-        return {
-          food: (p.product_name_en || p.product_name || 'Unknown') + lbl,
-          calories: Math.round((n['energy-kcal_100g'] || 0) * f),
-          protein: Math.round((n['proteins_100g'] || 0) * f * 10) / 10,
-          carbs: Math.round((n['carbohydrates_100g'] || 0) * f * 10) / 10,
-          fat: Math.round((n['fat_100g'] || 0) * f * 10) / 10,
-          source: 'barcode',
-        };
+      const product = d.product || (d.status === 1 ? d.product : null);
+      if (product && (product.nutriments?.['energy-kcal_100g'] != null || product.nutriments?.energy_100g != null)) {
+        return parseOFFProduct(product);
       }
     } catch {}
   }
@@ -184,6 +201,7 @@ function FoodEntry({ entry, onDelete, onEdit }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
           {entry.source === 'barcode' && <span style={{ fontSize: 9, background: '#3b82f620', color: '#3b82f6', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>SCAN</span>}
           {entry.source === 'off' && <span style={{ fontSize: 9, background: '#a855f720', color: '#a855f7', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>OFF</span>}
+          {entry.source === 'manual' && <span style={{ fontSize: 9, background: '#22c55e20', color: '#22c55e', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>MANUAL</span>}
           <span style={{ color: 'white', fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.food}</span>
           {onEdit && <span style={{ fontSize: 10, color: '#334155', flexShrink: 0 }}>✏︎</span>}
         </div>
@@ -353,6 +371,93 @@ function BarcodeScanner({ onDetected, onClose, onPermissionDenied }) {
   );
 }
 
+function ManualEntryModal({ onAdd, onClose }) {
+  const [draft, setDraft] = useState({ food: '', calories: '', protein: '', carbs: '', fat: '' });
+  const [error, setError] = useState('');
+
+  function handleSave() {
+    if (!draft.food.trim()) { setError('Please enter a food name.'); return; }
+    if (!draft.calories) { setError('Please enter calories.'); return; }
+    onAdd({
+      food: draft.food.trim(),
+      calories: parseFloat(draft.calories) || 0,
+      protein: parseFloat(draft.protein) || 0,
+      carbs: parseFloat(draft.carbs) || 0,
+      fat: parseFloat(draft.fat) || 0,
+    });
+    onClose();
+  }
+
+  const inp = (field, placeholder, type = 'text') => (
+    <input
+      type={type} min="0" step="0.1"
+      placeholder={placeholder}
+      value={draft[field]}
+      onChange={e => { setDraft(d => ({ ...d, [field]: e.target.value })); setError(''); }}
+      onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+      style={{ width: '100%', background: '#0a1628', border: '1px solid #1e293b', borderRadius: 8,
+        padding: '10px 12px', color: 'white', fontSize: 14, fontFamily: 'monospace',
+        outline: 'none', boxSizing: 'border-box' }}
+      onFocus={e => e.target.style.borderColor = '#f97316'}
+      onBlur={e => e.target.style.borderColor = '#1e293b'}
+    />
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#000000cc', zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: '100%', maxWidth: 400, background: '#0a1628', borderRadius: 16,
+        border: '1px solid #1e293b', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '14px 16px', borderBottom: '1px solid #1e293b' }}>
+          <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>✏️ Add manually</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 22 }}>✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ marginBottom: 10 }}>{inp('food', 'Food name (e.g. Tesco chicken wrap)')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#22c55e', fontFamily: 'monospace', marginBottom: 4 }}>CALORIES (kcal)</div>
+              {inp('calories', '0', 'number')}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#f97316', fontFamily: 'monospace', marginBottom: 4 }}>PROTEIN (g)</div>
+              {inp('protein', '0', 'number')}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#3b82f6', fontFamily: 'monospace', marginBottom: 4 }}>CARBS (g)</div>
+              {inp('carbs', '0', 'number')}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#a855f7', fontFamily: 'monospace', marginBottom: 4 }}>FAT (g)</div>
+              {inp('fat', '0', 'number')}
+            </div>
+          </div>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '8px 12px', marginBottom: 12,
+            fontSize: 11, color: '#475569', fontFamily: 'monospace', lineHeight: 1.6 }}>
+            💡 Tip: find macros on the back of the packet under "Nutrition" and enter them here.
+          </div>
+          {error && <div style={{ color: '#ef4444', fontSize: 12, fontFamily: 'monospace', marginBottom: 10 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleSave}
+              style={{ flex: 1, background: '#f97316', border: 'none', borderRadius: 10,
+                padding: 12, color: 'white', fontWeight: 700, fontSize: 14,
+                cursor: 'pointer', fontFamily: 'monospace' }}>
+              Add to log
+            </button>
+            <button onClick={onClose}
+              style={{ flex: 1, background: '#1e293b', border: 'none', borderRadius: 10,
+                padding: 12, color: '#94a3b8', fontSize: 14,
+                cursor: 'pointer', fontFamily: 'monospace' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AuthModal({ onClose }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -433,6 +538,7 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showManual, setShowManual] = useState(false);
   const [offResults, setOffResults] = useState(null);
   const [offLoading, setOffLoading] = useState(false);
   const inputRef = useRef(null);
@@ -514,6 +620,10 @@ export default function App() {
     saveDiary(newDiary);
   }
 
+  function handleManualAdd(result) {
+    addEntry({ ...result, source: 'manual' });
+  }
+
   const handleDetected = useCallback(async (barcode) => {
     setScanning(false); setBarcodeLoading(true); setError('');
     const result = await lookupBarcode(barcode);
@@ -550,6 +660,7 @@ export default function App() {
       {scanning && <BarcodeScanner onDetected={handleDetected} onClose={() => setScanning(false)} onPermissionDenied={() => setScanning(false)} />}
       {detailDate && <DayDetail dateStr={detailDate} entries={diary[detailDate] || []} onClose={() => setDetailDate(null)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      {showManual && <ManualEntryModal onAdd={handleManualAdd} onClose={() => setShowManual(false)} />}
 
       <div style={{ minHeight: '100vh', background: '#020817', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '28px 16px 60px' }}>
         <div style={{ width: '100%', maxWidth: 500 }}>
@@ -632,6 +743,12 @@ export default function App() {
               <button onClick={() => { setError(''); setScanning(true); }}
                 style={{ flex: 1, background: '#0a1628', border: '1px dashed #334155', borderRadius: 10, padding: 11, color: barcodeLoading ? '#f97316' : '#94a3b8', fontSize: 13, fontFamily: 'monospace', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 {barcodeLoading ? '⚡ Looking up…' : '📷 Scan Barcode'}
+              </button>
+              <button onClick={() => { setError(''); setOffResults(null); setShowManual(true); }}
+                style={{ flex: 1, background: '#0a1628', border: '1px dashed #334155', borderRadius: 10, padding: 11, color: '#94a3b8', fontSize: 13, fontFamily: 'monospace', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#f97316'; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}>
+                ✏️ Add manually
               </button>
             </div>
 
