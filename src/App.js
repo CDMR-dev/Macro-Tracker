@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
-import { lookupFood, FOOD_DB } from './foodDatabase';
+import { lookupFood, FOOD_DB, FOOD_VARIANTS } from './foodDatabase';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const COLORS = { protein: '#f97316', carbs: '#3b82f6', fat: '#a855f7', calories: '#22c55e' };
@@ -81,6 +81,7 @@ function parseOFFProduct(p) {
   const lbl = p.serving_size ? ` (${p.serving_size})` : ' (per 100g)';
   const name = p.product_name_en || p.product_name_gb || p.product_name || 'Unknown product';
   const brand = p.brands ? p.brands.split(',')[0].trim() + ' ' : '';
+  const amount = servingG;
   return {
     food: brand + name + lbl,
     calories: Math.round(cal100 * f),
@@ -88,6 +89,14 @@ function parseOFFProduct(p) {
     carbs: Math.round(carb100 * f * 10) / 10,
     fat: Math.round(fat100 * f * 10) / 10,
     source: 'barcode',
+    amount,
+    unit: 'g',
+    // store per-100 base so user can rescale quantity later
+    basePer100: {
+      calories: Math.round(cal100), protein: Math.round(pro100 * 10) / 10,
+      carbs: Math.round(carb100 * 10) / 10, fat: Math.round(fat100 * 10) / 10,
+      amount,
+    },
   };
 }
 
@@ -161,59 +170,229 @@ function MacroBreakdown({ totals }) {
 
 function FoodEntry({ entry, onDelete, onEdit }) {
   const [editing, setEditing] = useState(false);
+  // base macros per 100g/ml (stored on entry when first logged, or derived from current macros)
+  const [base, setBase] = useState(null);
+  const [qty, setQty] = useState('');
+  const [unit, setUnit] = useState('g');
   const [draft, setDraft] = useState({});
+  const [mode, setMode] = useState('quantity'); // 'quantity' | 'manual'
 
   function startEdit() {
+    // Store base-per-100 if not already known
+    const b = entry.basePer100 || {
+      calories: entry.calories,
+      protein: entry.protein,
+      carbs: entry.carbs,
+      fat: entry.fat,
+      amount: entry.amount || 100,
+    };
+    setBase(b);
+    // Pre-fill qty from stored amount, default 100
+    setQty(String(entry.amount || 100));
+    setUnit(entry.unit || 'g');
     setDraft({ food: entry.food, calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat });
+    setMode('quantity');
     setEditing(true);
   }
 
+  // Recalculate macros when qty changes (quantity mode)
+  function recalcFromQty(newQty, newUnit) {
+    if (!base) return;
+    const amount = parseFloat(newQty) || 0;
+    // treat ml same as g for density purposes
+    const factor = amount / base.amount;
+    setDraft({
+      food: draft.food,
+      calories: Math.round(base.calories * factor),
+      protein: Math.round(base.protein * factor * 10) / 10,
+      carbs: Math.round(base.carbs * factor * 10) / 10,
+      fat: Math.round(base.fat * factor * 10) / 10,
+    });
+  }
+
+  function handleQtyChange(v) {
+    setQty(v);
+    recalcFromQty(v, unit);
+  }
+
+  function handleSave() {
+    const amount = parseFloat(qty) || 100;
+    onEdit(entry.id, {
+      ...draft,
+      calories: +draft.calories,
+      protein: +draft.protein,
+      carbs: +draft.carbs,
+      fat: +draft.fat,
+      amount,
+      unit,
+      // save base so future edits can re-scale correctly
+      basePer100: base,
+    });
+    setEditing(false);
+  }
+
+  const inpStyle = (color) => ({
+    width: '100%', background: '#0a1628', border: '1px solid #334155',
+    borderRadius: 6, color: color || 'white', fontFamily: 'monospace',
+    fontSize: 12, padding: '5px 6px', boxSizing: 'border-box',
+  });
+
   if (editing) {
     return (
-      <div style={{ background: '#0f172a', border: '1px solid #f97316', borderRadius: 10, padding: '10px 12px' }}>
+      <div style={{ background: '#0f172a', border: '1px solid #f97316', borderRadius: 10, padding: '12px' }}>
+        {/* Food name */}
         <input value={draft.food} onChange={e => setDraft(d => ({ ...d, food: e.target.value }))}
-          style={{ width: '100%', background: '#0a1628', border: '1px solid #334155', borderRadius: 6, color: 'white', fontFamily: 'monospace', fontSize: 13, padding: '5px 8px', marginBottom: 8, boxSizing: 'border-box' }} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
-          {[['calories', 'kcal', COLORS.calories], ['protein', 'pro', COLORS.protein], ['carbs', 'carb', COLORS.carbs], ['fat', 'fat', COLORS.fat]].map(([f, l, c]) => (
-            <div key={f}>
-              <div style={{ fontSize: 9, color: c, fontFamily: 'monospace', marginBottom: 2 }}>{l.toUpperCase()}</div>
-              <input type="number" min="0" value={draft[f]} onChange={e => setDraft(d => ({ ...d, [f]: e.target.value }))}
-                style={{ width: '100%', background: '#0a1628', border: '1px solid #334155', borderRadius: 6, color: c, fontFamily: 'monospace', fontSize: 12, padding: '4px 6px', boxSizing: 'border-box' }} />
-            </div>
+          style={{ ...inpStyle(), fontSize: 13, marginBottom: 10 }} />
+
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', background: '#0a1628', borderRadius: 8, padding: 3, marginBottom: 10, border: '1px solid #1e293b' }}>
+          {[['quantity', '⚖️ Adjust quantity'], ['manual', '✏️ Edit macros']].map(([m, l]) => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{ flex: 1, padding: '6px 4px', border: 'none', borderRadius: 6, fontSize: 11,
+                fontFamily: 'monospace', cursor: 'pointer',
+                background: mode === m ? '#f97316' : 'none',
+                color: mode === m ? 'white' : '#475569' }}>
+              {l}
+            </button>
           ))}
         </div>
+
+        {mode === 'quantity' ? (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace', marginBottom: 6 }}>
+              AMOUNT (macros scale automatically)
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input type="number" min="0" step="1" value={qty}
+                onChange={e => handleQtyChange(e.target.value)}
+                style={{ ...inpStyle(COLORS.calories), flex: 2, fontSize: 16, padding: '8px 10px', fontWeight: 700 }} />
+              <select value={unit} onChange={e => { setUnit(e.target.value); }}
+                style={{ flex: 1, background: '#0a1628', border: '1px solid #334155', borderRadius: 6,
+                  color: '#94a3b8', fontFamily: 'monospace', fontSize: 12, padding: '5px 6px' }}>
+                <option value="g">g</option>
+                <option value="ml">ml</option>
+                <option value="oz">oz</option>
+                <option value="serving">serving</option>
+              </select>
+            </div>
+            <div style={{ marginTop: 8, padding: '8px 10px', background: '#0a1628', borderRadius: 8, display: 'flex', gap: 12 }}>
+              {[['cal', draft.calories, COLORS.calories], ['pro', draft.protein + 'g', COLORS.protein],
+                ['carb', draft.carbs + 'g', COLORS.carbs], ['fat', draft.fat + 'g', COLORS.fat]].map(([l, v, c]) => (
+                <div key={l} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: c, fontFamily: 'monospace' }}>{v}</div>
+                  <div style={{ fontSize: 9, color: '#475569', fontFamily: 'monospace' }}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+            {[['calories', 'kcal', COLORS.calories], ['protein', 'pro', COLORS.protein],
+              ['carbs', 'carb', COLORS.carbs], ['fat', 'fat', COLORS.fat]].map(([f, l, c]) => (
+              <div key={f}>
+                <div style={{ fontSize: 9, color: c, fontFamily: 'monospace', marginBottom: 2 }}>{l.toUpperCase()}</div>
+                <input type="number" min="0" value={draft[f]}
+                  onChange={e => setDraft(d => ({ ...d, [f]: e.target.value }))}
+                  style={inpStyle(c)} />
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => { onEdit(entry.id, { ...draft, calories: +draft.calories, protein: +draft.protein, carbs: +draft.carbs, fat: +draft.fat }); setEditing(false); }}
-            style={{ flex: 1, background: '#f97316', border: 'none', borderRadius: 7, padding: 7, color: 'white', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' }}>Save</button>
+          <button onClick={handleSave}
+            style={{ flex: 1, background: '#f97316', border: 'none', borderRadius: 7, padding: 8,
+              color: 'white', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' }}>
+            Save
+          </button>
           <button onClick={() => setEditing(false)}
-            style={{ flex: 1, background: '#1e293b', border: 'none', borderRadius: 7, padding: 7, color: '#94a3b8', fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' }}>Cancel</button>
+            style={{ flex: 1, background: '#1e293b', border: 'none', borderRadius: 7, padding: 8,
+              color: '#94a3b8', fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' }}>
+            Cancel
+          </button>
         </div>
       </div>
     );
   }
 
+  const sourceColors = { barcode: '#3b82f6', off: '#a855f7', manual: '#22c55e' };
+  const sourceLabel = { barcode: 'SCAN', off: 'OFF', manual: 'MANUAL' };
+
   return (
     <div onClick={onEdit ? startEdit : undefined}
-      style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: onEdit ? 'pointer' : 'default' }}
+      style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10,
+        padding: '10px 12px', display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', gap: 10, cursor: onEdit ? 'pointer' : 'default' }}
       onMouseOver={e => { if (onEdit) e.currentTarget.style.borderColor = '#334155'; }}
       onMouseOut={e => { e.currentTarget.style.borderColor = '#1e293b'; }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-          {entry.source === 'barcode' && <span style={{ fontSize: 9, background: '#3b82f620', color: '#3b82f6', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>SCAN</span>}
-          {entry.source === 'off' && <span style={{ fontSize: 9, background: '#a855f720', color: '#a855f7', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>OFF</span>}
-          {entry.source === 'manual' && <span style={{ fontSize: 9, background: '#22c55e20', color: '#22c55e', borderRadius: 3, padding: '1px 5px', fontFamily: 'monospace', flexShrink: 0 }}>MANUAL</span>}
-          <span style={{ color: 'white', fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.food}</span>
+          {sourceColors[entry.source] && (
+            <span style={{ fontSize: 9, background: sourceColors[entry.source] + '20',
+              color: sourceColors[entry.source], borderRadius: 3, padding: '1px 5px',
+              fontFamily: 'monospace', flexShrink: 0 }}>
+              {sourceLabel[entry.source]}
+            </span>
+          )}
+          <span style={{ color: 'white', fontWeight: 600, fontSize: 13, overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {entry.food}
+          </span>
           {onEdit && <span style={{ fontSize: 10, color: '#334155', flexShrink: 0 }}>✏︎</span>}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[['cal', entry.calories, COLORS.calories], ['pro', entry.protein + 'g', COLORS.protein], ['carb', entry.carbs + 'g', COLORS.carbs], ['fat', entry.fat + 'g', COLORS.fat]].map(([l, v, c]) => (
-            <span key={l} style={{ fontSize: 10, fontFamily: 'monospace', color: c, background: c + '18', borderRadius: 3, padding: '1px 6px' }}>{l}: {v}</span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {entry.amount && (
+            <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>
+              {entry.amount}{entry.unit || 'g'}
+            </span>
+          )}
+          {[['cal', entry.calories, COLORS.calories], ['pro', entry.protein + 'g', COLORS.protein],
+            ['carb', entry.carbs + 'g', COLORS.carbs], ['fat', entry.fat + 'g', COLORS.fat]].map(([l, v, c]) => (
+            <span key={l} style={{ fontSize: 10, fontFamily: 'monospace', color: c,
+              background: c + '18', borderRadius: 3, padding: '1px 6px' }}>{l}: {v}</span>
           ))}
         </div>
       </div>
       {onDelete && <button onClick={e => { e.stopPropagation(); onDelete(entry.id); }}
-        style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', fontSize: 15, padding: '2px 5px', flexShrink: 0 }}
-        onMouseOver={e => e.target.style.color = '#ef4444'} onMouseOut={e => e.target.style.color = '#334155'}>✕</button>}
+        style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer',
+          fontSize: 15, padding: '2px 5px', flexShrink: 0 }}
+        onMouseOver={e => e.target.style.color = '#ef4444'}
+        onMouseOut={e => e.target.style.color = '#334155'}>✕</button>}
+    </div>
+  );
+}
+
+function VariantPicker({ foodKey, onSelect, onClose }) {
+  const variants = FOOD_VARIANTS[foodKey];
+  if (!variants) return null;
+  return (
+    <div style={{ background: '#0a1628', border: '1px solid #22c55e', borderRadius: 10,
+      marginTop: -6, marginBottom: 10, overflow: 'hidden' }}>
+      <div style={{ padding: '8px 14px', borderBottom: '1px solid #1e293b',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: '#22c55e', fontFamily: 'monospace' }}>
+          SELECT VARIANT — {foodKey}
+        </span>
+        <button onClick={onClose} style={{ background: 'none', border: 'none',
+          color: '#475569', cursor: 'pointer', fontSize: 14 }}>✕</button>
+      </div>
+      {variants.map((v, i) => (
+        <button key={i} onClick={() => onSelect(v, foodKey)}
+          style={{ width: '100%', background: 'none', border: 'none',
+            borderBottom: '1px solid #0f172a', padding: '10px 14px',
+            color: '#94a3b8', fontSize: 12, fontFamily: 'monospace',
+            cursor: 'pointer', textAlign: 'left' }}
+          onMouseOver={e => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.color = 'white'; }}
+          onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#94a3b8'; }}>
+          <div style={{ marginBottom: 3 }}>{v.label}</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[['cal', v.calories, '#22c55e'], ['pro', v.protein + 'g', '#f97316'],
+              ['carb', v.carbs + 'g', '#3b82f6'], ['fat', v.fat + 'g', '#a855f7']].map(([l, val, c]) => (
+              <span key={l} style={{ fontSize: 10, color: c }}>{l}: {val}</span>
+            ))}
+          </div>
+        </button>
+      ))}
     </div>
   );
 }
@@ -540,6 +719,7 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [offResults, setOffResults] = useState(null);
+  const [variantKey, setVariantKey] = useState(null); // food key for variant picker
   const [offLoading, setOffLoading] = useState(false);
   const inputRef = useRef(null);
   const today = todayStr();
@@ -589,9 +769,20 @@ export default function App() {
   function handleAdd(value) {
     const query = (value || input).trim();
     if (!query) return;
-    setError(''); setOffResults(null);
+    setError(''); setOffResults(null); setVariantKey(null);
     const result = lookupFood(query);
-    if (result) { addEntry(result); setInput(''); inputRef.current?.focus(); return; }
+    if (result) {
+      // Check if this food has variants
+      const q = query.toLowerCase().replace(/^\d.*?\s+/, '').replace(/s$/, '').trim();
+      const varKey = Object.keys(FOOD_VARIANTS).find(k => q.includes(k) || k.includes(q));
+      if (varKey) {
+        // Show variant picker — pre-fill input with matched key for context
+        setInput(varKey);
+        setVariantKey(varKey);
+        return;
+      }
+      addEntry(result); setInput(''); inputRef.current?.focus(); return;
+    }
     // Not in local DB — search Open Food Facts
     setOffLoading(true);
     searchOFF(query).then(results => {
@@ -601,6 +792,22 @@ export default function App() {
       setError(`"${query}" not found. Try a different spelling or more specific name.`);
       setOffLoading(false);
     });
+  }
+
+  function handleVariantSelect(variant, foodKey) {
+    addEntry({
+      food: foodKey + ' (' + variant.label + ')',
+      calories: variant.calories,
+      protein: variant.protein,
+      carbs: variant.carbs,
+      fat: variant.fat,
+      basePer100: variant,
+      amount: 100,
+      unit: 'g',
+    });
+    setVariantKey(null);
+    setInput('');
+    inputRef.current?.focus();
   }
 
   function handleOFFSelect(result) {
@@ -738,6 +945,7 @@ export default function App() {
 
             <Suggestions query={input} onSelect={s => { setInput(s); inputRef.current?.focus(); }} />
             <OFFResults results={offResults} onSelect={handleOFFSelect} onClose={() => setOffResults(null)} />
+            {variantKey && <VariantPicker foodKey={variantKey} onSelect={handleVariantSelect} onClose={() => setVariantKey(null)} />}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
               <button onClick={() => { setError(''); setScanning(true); }}
