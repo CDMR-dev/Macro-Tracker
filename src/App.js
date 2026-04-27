@@ -178,42 +178,41 @@ function FoodEntry({ entry, onDelete, onEdit }) {
   const [mode, setMode] = useState('quantity'); // 'quantity' | 'manual'
 
   function startEdit() {
-    // basePer100 stores macros per 100g. If not present, derive from current macros.
-    // entry.amount is the actual grams/ml logged (e.g. 150g). Default to 100 if unknown.
     const loggedAmount = entry.amount || 100;
-    const b = entry.basePer100 || {
-      // If we have no base, back-calculate per-100 from current values and logged amount
-      calories: Math.round((entry.calories / loggedAmount) * 100),
-      protein: Math.round((entry.protein / loggedAmount) * 1000) / 10,
-      carbs:   Math.round((entry.carbs   / loggedAmount) * 1000) / 10,
-      fat:     Math.round((entry.fat     / loggedAmount) * 1000) / 10,
+    // Build per-100g base — either stored on entry, or back-calculated from logged amount
+    const b = entry.basePer100 ? entry.basePer100 : {
+      calories: loggedAmount > 0 ? Math.round((entry.calories / loggedAmount) * 100) : entry.calories,
+      protein:  loggedAmount > 0 ? Math.round((entry.protein  / loggedAmount) * 1000) / 10 : entry.protein,
+      carbs:    loggedAmount > 0 ? Math.round((entry.carbs    / loggedAmount) * 1000) / 10 : entry.carbs,
+      fat:      loggedAmount > 0 ? Math.round((entry.fat      / loggedAmount) * 1000) / 10 : entry.fat,
     };
     setBase(b);
-    // Show the actual logged amount (not 100) so user sees what they entered
     setQty(String(loggedAmount));
     setUnit(entry.unit || 'g');
+    // Set draft macros to current entry values (already correct for loggedAmount)
     setDraft({ food: entry.food, calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat });
     setMode('quantity');
     setEditing(true);
   }
 
-  // Recalculate macros from per-100g base when qty changes
-  function recalcFromQty(newQty) {
-    if (!base) return;
+  // Recalculate macros — takes base explicitly to avoid stale state closure
+  function recalcFromQty(newQty, currentBase) {
+    const b = currentBase || base;
+    if (!b) return;
     const amount = parseFloat(newQty) || 0;
-    const factor = amount / 100; // base is always per-100g
+    const factor = amount / 100; // b is always per-100g
     setDraft(d => ({
       food: d.food,
-      calories: Math.round(base.calories * factor),
-      protein: Math.round(base.protein * factor * 10) / 10,
-      carbs:   Math.round(base.carbs   * factor * 10) / 10,
-      fat:     Math.round(base.fat     * factor * 10) / 10,
+      calories: Math.round(b.calories * factor),
+      protein:  Math.round(b.protein  * factor * 10) / 10,
+      carbs:    Math.round(b.carbs    * factor * 10) / 10,
+      fat:      Math.round(b.fat      * factor * 10) / 10,
     }));
   }
 
   function handleQtyChange(v) {
     setQty(v);
-    recalcFromQty(v);
+    recalcFromQty(v, base);
   }
 
   function handleSave() {
@@ -264,9 +263,13 @@ function FoodEntry({ entry, onDelete, onEdit }) {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <input
-                type="number" min="0" max="99999" step="1"
+                type="text"
+                inputMode="decimal"
                 value={qty}
-                onChange={e => handleQtyChange(e.target.value)}
+                onChange={e => {
+                  const v = e.target.value.replace(/[^0-9.]/g, '');
+                  handleQtyChange(v);
+                }}
                 onFocus={e => e.target.select()}
                 placeholder="e.g. 150"
                 style={{ ...inpStyle(COLORS.calories), flex: 2, fontSize: 18, padding: '8px 10px', fontWeight: 700 }} />
