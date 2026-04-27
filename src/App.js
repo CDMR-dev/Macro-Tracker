@@ -45,6 +45,73 @@ async function dbSaveDay(userId, date, entries) {
   if (error) throw error;
 }
 
+// ─── Favourites helpers ────────────────────────────────────────────────────────
+async function dbLoadFavourites(userId) {
+  const { data } = await supabase
+    .from('favourites')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function dbAddFavourite(userId, item) {
+  const { data, error } = await supabase
+    .from('favourites')
+    .insert({ user_id: userId, name: item.food, macros: item })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbRemoveFavourite(userId, id) {
+  await supabase.from('favourites').delete().eq('id', id).eq('user_id', userId);
+}
+
+// ─── Recent foods helpers ──────────────────────────────────────────────────────
+async function dbLoadRecents(userId) {
+  const { data } = await supabase
+    .from('recents')
+    .select('*')
+    .eq('user_id', userId)
+    .order('used_at', { ascending: false })
+    .limit(20);
+  return data || [];
+}
+
+async function dbUpsertRecent(userId, item) {
+  // Use food name as unique key per user — update timestamp if exists
+  await supabase.from('recents').upsert(
+    { user_id: userId, name: item.food, macros: item, used_at: new Date().toISOString() },
+    { onConflict: 'user_id,name' }
+  );
+}
+
+// ─── Meal template helpers ─────────────────────────────────────────────────────
+async function dbLoadMealTemplates(userId) {
+  const { data } = await supabase
+    .from('meal_templates')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function dbSaveMealTemplate(userId, name, entries) {
+  const { data, error } = await supabase
+    .from('meal_templates')
+    .insert({ user_id: userId, name, entries })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function dbDeleteMealTemplate(userId, id) {
+  await supabase.from('meal_templates').delete().eq('id', id).eq('user_id', userId);
+}
+
 // ─── Open Food Facts search ───────────────────────────────────────────────────
 async function searchOFF(query) {
   const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments,serving_quantity,serving_size&lc=en&countries_tags=en:united-kingdom`;
@@ -644,6 +711,170 @@ function ManualEntryModal({ onAdd, onClose }) {
   );
 }
 
+function QuickAddPanel({ recents, favourites, mealTemplates, onAddFood, onToggleFavourite, onAddTemplate, onDeleteTemplate, onSaveAsTemplate, todayEntries, isFavourite }) {
+  const [activeTab, setActiveTab] = useState("recents");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+
+  const tabs = [
+    ["recents", "🕐 Recent"],
+    ["favourites", "⭐ Saved"],
+    ["templates", "🍽️ Meals"],
+  ];
+
+  const MacroChips = ({ item }) => (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 3 }}>
+      {[["cal", item.calories, COLORS.calories], ["pro", (item.protein || 0) + "g", COLORS.protein],
+        ["carb", (item.carbs || 0) + "g", COLORS.carbs], ["fat", (item.fat || 0) + "g", COLORS.fat]].map(([l, v, c]) => (
+        <span key={l} style={{ fontSize: 10, color: c, background: c + "18", borderRadius: 3, padding: "1px 5px", fontFamily: "monospace" }}>{l}: {v}</span>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ background: "#0a1628", border: "1px solid #1e293b", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
+      {/* Tab bar */}
+      <div style={{ display: "flex", borderBottom: "1px solid #1e293b" }}>
+        {tabs.map(([id, label]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            style={{ flex: 1, padding: "10px 4px", border: "none", background: "none",
+              fontSize: 11, fontFamily: "monospace", cursor: "pointer",
+              color: activeTab === id ? "#f97316" : "#475569",
+              borderBottom: activeTab === id ? "2px solid #f97316" : "2px solid transparent" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Recents */}
+      {activeTab === "recents" && (
+        <div>
+          {recents.length === 0 ? (
+            <div style={{ padding: "20px 14px", color: "#334155", fontSize: 12, fontFamily: "monospace", textAlign: "center" }}>
+              Foods you log will appear here automatically.
+            </div>
+          ) : recents.map((r, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #0f172a", padding: "10px 14px", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "white", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{r.macros?.food || r.name}</div>
+                <MacroChips item={r.macros || {}} />
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => onToggleFavourite(r.macros || {})}
+                  title={isFavourite(r.macros?.food || r.name) ? "Remove from saved" : "Save"}
+                  style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer",
+                    color: isFavourite(r.macros?.food || r.name) ? "#f97316" : "#334155" }}>
+                  {isFavourite(r.macros?.food || r.name) ? "★" : "☆"}
+                </button>
+                <button onClick={() => onAddFood(r.macros || {})}
+                  style={{ background: "#f97316", border: "none", borderRadius: 6, padding: "5px 10px",
+                    color: "white", fontSize: 11, fontFamily: "monospace", cursor: "pointer", fontWeight: 700 }}>
+                  + Add
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Favourites */}
+      {activeTab === "favourites" && (
+        <div>
+          {favourites.length === 0 ? (
+            <div style={{ padding: "20px 14px", color: "#334155", fontSize: 12, fontFamily: "monospace", textAlign: "center" }}>
+              Star foods from your recent list to save them here.
+            </div>
+          ) : favourites.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #0f172a", padding: "10px 14px", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "white", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{f.macros?.food || f.name}</div>
+                <MacroChips item={f.macros || {}} />
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => onToggleFavourite(f.macros || {}, f.id)}
+                  title="Remove from saved"
+                  style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#f97316" }}>★</button>
+                <button onClick={() => onAddFood(f.macros || {})}
+                  style={{ background: "#f97316", border: "none", borderRadius: 6, padding: "5px 10px",
+                    color: "white", fontSize: 11, fontFamily: "monospace", cursor: "pointer", fontWeight: 700 }}>
+                  + Add
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Meal Templates */}
+      {activeTab === "templates" && (
+        <div>
+          {/* Save today as template */}
+          {todayEntries.length > 0 && (
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid #0f172a" }}>
+              {savingTemplate ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input value={templateName} onChange={e => setTemplateName(e.target.value)}
+                    placeholder="Meal name e.g. My usual breakfast"
+                    style={{ flex: 1, background: "#0f172a", border: "1px solid #334155", borderRadius: 6,
+                      color: "white", fontFamily: "monospace", fontSize: 12, padding: "6px 8px" }}
+                    onKeyDown={e => { if (e.key === "Enter" && templateName.trim()) { onSaveAsTemplate(templateName.trim()); setSavingTemplate(false); setTemplateName(""); } }} />
+                  <button onClick={() => { if (templateName.trim()) { onSaveAsTemplate(templateName.trim()); setSavingTemplate(false); setTemplateName(""); } }}
+                    style={{ background: "#f97316", border: "none", borderRadius: 6, padding: "6px 10px",
+                      color: "white", fontSize: 11, fontFamily: "monospace", cursor: "pointer", fontWeight: 700 }}>
+                    Save
+                  </button>
+                  <button onClick={() => { setSavingTemplate(false); setTemplateName(""); }}
+                    style={{ background: "#1e293b", border: "none", borderRadius: 6, padding: "6px 10px",
+                      color: "#94a3b8", fontSize: 11, cursor: "pointer" }}>✕</button>
+                </div>
+              ) : (
+                <button onClick={() => setSavingTemplate(true)}
+                  style={{ width: "100%", background: "#1e293b", border: "1px dashed #334155", borderRadius: 8,
+                    padding: "8px", color: "#94a3b8", fontSize: 12, fontFamily: "monospace", cursor: "pointer" }}>
+                  💾 Save today's log as a meal template
+                </button>
+              )}
+            </div>
+          )}
+
+          {mealTemplates.length === 0 ? (
+            <div style={{ padding: "20px 14px", color: "#334155", fontSize: 12, fontFamily: "monospace", textAlign: "center" }}>
+              Save today's log as a template to quickly re-add whole meals.
+            </div>
+          ) : mealTemplates.map((t, i) => {
+            const totals = (t.entries || []).reduce((a, e) => ({
+              calories: a.calories + (e.calories || 0), protein: a.protein + (e.protein || 0),
+              carbs: a.carbs + (e.carbs || 0), fat: a.fat + (e.fat || 0),
+            }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+            return (
+              <div key={i} style={{ borderBottom: "1px solid #0f172a", padding: "10px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <div style={{ color: "white", fontSize: 13, fontWeight: 600 }}>{t.name}</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => onDeleteTemplate(t.id)}
+                      style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: 14 }}
+                      onMouseOver={e => e.target.style.color = "#ef4444"}
+                      onMouseOut={e => e.target.style.color = "#334155"}>✕</button>
+                    <button onClick={() => onAddTemplate(t.entries)}
+                      style={{ background: "#f97316", border: "none", borderRadius: 6, padding: "5px 10px",
+                        color: "white", fontSize: 11, fontFamily: "monospace", cursor: "pointer", fontWeight: 700 }}>
+                      + Add all
+                    </button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: "#475569", fontFamily: "monospace", marginBottom: 4 }}>
+                  {(t.entries || []).length} items
+                </div>
+                <MacroChips item={totals} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AuthModal({ onClose }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -726,8 +957,12 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [offResults, setOffResults] = useState(null);
-  const [variantKey, setVariantKey] = useState(null); // food key for variant picker
+  const [variantKey, setVariantKey] = useState(null);
   const [offLoading, setOffLoading] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [favourites, setFavourites] = useState([]);
+  const [recents, setRecents] = useState([]);
+  const [mealTemplates, setMealTemplates] = useState([]);
   const inputRef = useRef(null);
   const today = todayStr();
 
@@ -740,12 +975,16 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load diary
+  // Load diary + user-specific data
   useEffect(() => {
     if (user) {
       dbLoadDiary(user.id).then(setDiary).catch(() => {});
+      dbLoadFavourites(user.id).then(setFavourites).catch(() => {});
+      dbLoadRecents(user.id).then(setRecents).catch(() => {});
+      dbLoadMealTemplates(user.id).then(setMealTemplates).catch(() => {});
     } else {
       try { const s = localStorage.getItem(LOCAL_KEY); if (s) setDiary(JSON.parse(s)); } catch {}
+      setFavourites([]); setRecents([]); setMealTemplates([]);
     }
   }, [user]);
 
@@ -771,6 +1010,51 @@ export default function App() {
     const entry = { ...result, id: Date.now(), source };
     const newDiary = { ...diary, [today]: [...todayEntries, entry] };
     saveDiary(newDiary);
+    // Track in recents for logged-in users
+    if (user && result.food) {
+      dbUpsertRecent(user.id, result).then(() =>
+        dbLoadRecents(user.id).then(setRecents)
+      ).catch(() => {});
+    }
+  }
+
+  function handleAddFromQuick(item) {
+    addEntry({ ...item, source: 'text' });
+  }
+
+  async function handleToggleFavourite(item, existingId) {
+    if (!user) return;
+    const alreadyFav = existingId || favourites.find(f => f.name === item.food)?.id;
+    if (alreadyFav) {
+      await dbRemoveFavourite(user.id, alreadyFav);
+      setFavourites(prev => prev.filter(f => f.id !== alreadyFav));
+    } else {
+      const saved = await dbAddFavourite(user.id, item);
+      setFavourites(prev => [saved, ...prev]);
+    }
+  }
+
+  function isFavourite(foodName) {
+    return favourites.some(f => f.name === foodName);
+  }
+
+  async function handleAddTemplate(entries) {
+    entries.forEach(e => {
+      const { id: _id, ...rest } = e;
+      addEntry({ ...rest, source: 'text' });
+    });
+  }
+
+  async function handleSaveAsTemplate(name) {
+    if (!user) return;
+    const saved = await dbSaveMealTemplate(user.id, name, todayEntries);
+    setMealTemplates(prev => [saved, ...prev]);
+  }
+
+  async function handleDeleteTemplate(id) {
+    if (!user) return;
+    await dbDeleteMealTemplate(user.id, id);
+    setMealTemplates(prev => prev.filter(t => t.id !== id));
   }
 
   function handleAdd(value) {
@@ -966,7 +1250,7 @@ export default function App() {
             <OFFResults results={offResults} onSelect={handleOFFSelect} onClose={() => setOffResults(null)} />
             {variantKey && <VariantPicker foodKey={variantKey} onSelect={handleVariantSelect} onClose={() => setVariantKey(null)} />}
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <button onClick={() => { setError(''); setScanning(true); }}
                 style={{ flex: 1, background: '#0a1628', border: '1px dashed #334155', borderRadius: 10, padding: 11, color: barcodeLoading ? '#f97316' : '#94a3b8', fontSize: 13, fontFamily: 'monospace', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 {barcodeLoading ? '⚡ Looking up…' : '📷 Scan Barcode'}
@@ -978,6 +1262,34 @@ export default function App() {
                 ✏️ Add manually
               </button>
             </div>
+
+            {/* Quick Add button — only for logged-in users */}
+            {user && (
+              <button onClick={() => setShowQuickAdd(p => !p)}
+                style={{ width: '100%', marginBottom: 12, background: showQuickAdd ? '#1e293b' : '#0a1628',
+                  border: '1px solid ' + (showQuickAdd ? '#f97316' : '#1e293b'),
+                  borderRadius: 10, padding: '9px 14px', color: showQuickAdd ? '#f97316' : '#475569',
+                  fontSize: 12, fontFamily: 'monospace', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>⭐ Recent & saved foods {recents.length > 0 ? `(${recents.length})` : ''}</span>
+                <span>{showQuickAdd ? '▲' : '▼'}</span>
+              </button>
+            )}
+
+            {showQuickAdd && user && (
+              <QuickAddPanel
+                recents={recents}
+                favourites={favourites}
+                mealTemplates={mealTemplates}
+                onAddFood={handleAddFromQuick}
+                onToggleFavourite={handleToggleFavourite}
+                onAddTemplate={handleAddTemplate}
+                onSaveAsTemplate={handleSaveAsTemplate}
+                onDeleteTemplate={handleDeleteTemplate}
+                todayEntries={todayEntries}
+                isFavourite={isFavourite}
+              />
+            )}
 
             {error && <div style={{ background: '#ef444415', border: '1px solid #ef4444', borderRadius: 8, padding: '10px 14px', color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
