@@ -424,3 +424,169 @@ export function lookupFood(raw) {
     fat: Math.round(fat * factor * 10) / 10,
   };
 }
+
+// ── Food variants — shown as options when user selects certain foods ──────────
+// Format: { label, calories, protein, carbs, fat } per 100g
+export const FOOD_VARIANTS = {
+  "beef mince": [
+    { label: "5% fat (extra lean)", calories: 137, protein: 22, carbs: 0, fat: 5 },
+    { label: "10% fat (lean)", calories: 175, protein: 21, carbs: 0, fat: 10 },
+    { label: "15% fat (standard)", calories: 215, protein: 19, carbs: 0, fat: 15 },
+    { label: "20% fat (regular)", calories: 254, protein: 17, carbs: 0, fat: 20 },
+    { label: "30% fat (fatty)", calories: 332, protein: 14, carbs: 0, fat: 30 },
+  ],
+  "pork mince": [
+    { label: "5% fat (lean)", calories: 121, protein: 22, carbs: 0, fat: 5 },
+    { label: "10% fat (standard)", calories: 160, protein: 20, carbs: 0, fat: 10 },
+    { label: "20% fat (regular)", calories: 243, protein: 17, carbs: 0, fat: 20 },
+  ],
+  "chicken mince": [
+    { label: "3% fat (breast mince)", calories: 114, protein: 20, carbs: 0, fat: 3 },
+    { label: "8% fat (thigh mince)", calories: 144, protein: 17, carbs: 0, fat: 8 },
+    { label: "15% fat (mixed mince)", calories: 195, protein: 15, carbs: 0, fat: 15 },
+  ],
+  "turkey mince": [
+    { label: "1% fat (breast mince)", calories: 105, protein: 24, carbs: 0, fat: 1 },
+    { label: "7% fat (standard)", calories: 159, protein: 21, carbs: 0, fat: 7 },
+    { label: "15% fat (thigh mince)", calories: 210, protein: 18, carbs: 0, fat: 15 },
+  ],
+  "lamb mince": [
+    { label: "10% fat (lean)", calories: 183, protein: 22, carbs: 0, fat: 10 },
+    { label: "20% fat (standard)", calories: 260, protein: 19, carbs: 0, fat: 20 },
+    { label: "30% fat (fatty)", calories: 340, protein: 16, carbs: 0, fat: 30 },
+  ],
+  "greek yogurt": [
+    { label: "0% fat (total 0%)", calories: 57, protein: 10, carbs: 4, fat: 0 },
+    { label: "2% fat (low fat)", calories: 73, protein: 9.5, carbs: 4, fat: 2 },
+    { label: "5% fat (total 5%)", calories: 97, protein: 9, carbs: 4, fat: 5 },
+    { label: "10% fat (full fat)", calories: 133, protein: 5.7, carbs: 4.5, fat: 10 },
+  ],
+  "yogurt": [
+    { label: "0% fat", calories: 38, protein: 5.7, carbs: 5.5, fat: 0 },
+    { label: "low fat", calories: 51, protein: 5, carbs: 5.5, fat: 0.5 },
+    { label: "full fat", calories: 61, protein: 3.5, carbs: 7, fat: 1.5 },
+  ],
+  "skyr": [
+    { label: "0% fat", calories: 57, protein: 11, carbs: 4, fat: 0 },
+    { label: "2% fat", calories: 75, protein: 10, carbs: 4, fat: 2 },
+  ],
+  "cottage cheese": [
+    { label: "fat free", calories: 63, protein: 12, carbs: 3.4, fat: 0.2 },
+    { label: "low fat (2%)", calories: 84, protein: 11, carbs: 3.4, fat: 2 },
+    { label: "full fat (4%)", calories: 110, protein: 11, carbs: 3.5, fat: 4.3 },
+  ],
+  "cheddar": [
+    { label: "reduced fat (30% less)", calories: 270, protein: 28, carbs: 0.1, fat: 18 },
+    { label: "mild", calories: 390, protein: 24, carbs: 0.1, fat: 32 },
+    { label: "mature / regular", calories: 403, protein: 25, carbs: 0.1, fat: 33 },
+    { label: "extra mature", calories: 416, protein: 25, carbs: 0.1, fat: 35 },
+  ],
+  "milk": [
+    { label: "skimmed (0.1% fat)", calories: 34, protein: 3.4, carbs: 5, fat: 0.2 },
+    { label: "semi-skimmed (1.7% fat)", calories: 46, protein: 3.4, carbs: 4.7, fat: 1.6 },
+    { label: "whole (3.5% fat)", calories: 61, protein: 3.2, carbs: 4.8, fat: 3.3 },
+  ],
+  "cream cheese": [
+    { label: "light / reduced fat", calories: 155, protein: 8, carbs: 4.5, fat: 12 },
+    { label: "medium fat", calories: 251, protein: 5.3, carbs: 3.2, fat: 24 },
+    { label: "full fat", calories: 342, protein: 5.9, carbs: 3.8, fat: 34 },
+  ],
+  "sour cream": [
+    { label: "light (15% fat)", calories: 136, protein: 3.1, carbs: 5.2, fat: 12 },
+    { label: "full fat (20% fat)", calories: 193, protein: 2.1, carbs: 4.6, fat: 19 },
+  ],
+  "oat milk": [
+    { label: "original", calories: 46, protein: 1, carbs: 6.6, fat: 1.5 },
+    { label: "barista", calories: 60, protein: 1, carbs: 7.5, fat: 3 },
+    { label: "semi (reduced fat)", calories: 38, protein: 1, carbs: 5.5, fat: 1 },
+  ],
+  "soya milk": [
+    { label: "unsweetened", calories: 33, protein: 3.3, carbs: 1.2, fat: 1.8 },
+    { label: "sweetened", calories: 45, protein: 3.2, carbs: 3.8, fat: 1.8 },
+    { label: "barista", calories: 52, protein: 3.5, carbs: 4.2, fat: 2.2 },
+  ],
+  "coconut milk": [
+    { label: "light (reduced fat)", calories: 84, protein: 0.8, carbs: 2.4, fat: 8 },
+    { label: "full fat", calories: 230, protein: 2.3, carbs: 5.5, fat: 24 },
+  ],
+  "mayo": [
+    { label: "light mayonnaise", calories: 273, protein: 1.6, carbs: 15, fat: 24 },
+    { label: "regular mayonnaise", calories: 680, protein: 1, carbs: 0.6, fat: 75 },
+  ],
+  "mayonnaise": [
+    { label: "light / reduced fat", calories: 273, protein: 1.6, carbs: 15, fat: 24 },
+    { label: "regular / full fat", calories: 680, protein: 1, carbs: 0.6, fat: 75 },
+  ],
+  "peanut butter": [
+    { label: "reduced fat", calories: 486, protein: 28, carbs: 30, fat: 27 },
+    { label: "smooth", calories: 588, protein: 25, carbs: 20, fat: 50 },
+    { label: "crunchy", calories: 585, protein: 24, carbs: 21, fat: 49 },
+    { label: "natural (no added sugar/salt)", calories: 600, protein: 26, carbs: 18, fat: 51 },
+  ],
+  "salmon": [
+    { label: "fresh / raw", calories: 208, protein: 20, carbs: 0, fat: 13 },
+    { label: "smoked", calories: 142, protein: 23, carbs: 0, fat: 6 },
+    { label: "tinned in brine", calories: 130, protein: 22, carbs: 0, fat: 5 },
+    { label: "tinned in oil", calories: 199, protein: 20, carbs: 0, fat: 14 },
+  ],
+  "tuna": [
+    { label: "fresh / steak", calories: 144, protein: 23, carbs: 0, fat: 5.8 },
+    { label: "tinned in water / brine", calories: 116, protein: 26, carbs: 0, fat: 1 },
+    { label: "tinned in oil (drained)", calories: 189, protein: 27, carbs: 0, fat: 9 },
+    { label: "tinned in oil (not drained)", calories: 210, protein: 25, carbs: 0, fat: 12 },
+  ],
+  "chicken breast": [
+    { label: "raw (skinless)", calories: 105, protein: 22, carbs: 0, fat: 1.7 },
+    { label: "grilled / cooked", calories: 165, protein: 31, carbs: 0, fat: 3.6 },
+    { label: "roasted with skin", calories: 189, protein: 28, carbs: 0, fat: 8.5 },
+    { label: "breaded / crispy", calories: 230, protein: 17, carbs: 14, fat: 11 },
+  ],
+  "bacon": [
+    { label: "back bacon (grilled)", calories: 215, protein: 25, carbs: 0, fat: 13 },
+    { label: "streaky bacon (grilled)", calories: 349, protein: 29, carbs: 0, fat: 26 },
+    { label: "back bacon (raw)", calories: 215, protein: 16, carbs: 0, fat: 17 },
+    { label: "medallion / lean back", calories: 134, protein: 22, carbs: 0, fat: 5 },
+  ],
+  "dark chocolate": [
+    { label: "50–60% cocoa", calories: 546, protein: 5, carbs: 57, fat: 31 },
+    { label: "70% cocoa", calories: 530, protein: 10, carbs: 43, fat: 37 },
+    { label: "80% cocoa", calories: 560, protein: 10, carbs: 38, fat: 42 },
+    { label: "85–90% cocoa", calories: 587, protein: 11, carbs: 33, fat: 46 },
+    { label: "100% cocoa (unsweetened)", calories: 600, protein: 12, carbs: 25, fat: 50 },
+  ],
+  "bread": [
+    { label: "white sliced", calories: 265, protein: 9, carbs: 51, fat: 3.2 },
+    { label: "wholemeal / brown", calories: 247, protein: 12, carbs: 42, fat: 3.8 },
+    { label: "sourdough", calories: 260, protein: 9, carbs: 49, fat: 1.5 },
+    { label: "rye", calories: 259, protein: 8.5, carbs: 48, fat: 3.3 },
+    { label: "seeded / granary", calories: 259, protein: 10, carbs: 43, fat: 6 },
+  ],
+  "pasta": [
+    { label: "white (cooked)", calories: 131, protein: 5, carbs: 25, fat: 1.1 },
+    { label: "wholemeal (cooked)", calories: 124, protein: 5.3, carbs: 23, fat: 1.3 },
+    { label: "white (dry weight)", calories: 355, protein: 13, carbs: 68, fat: 1.8 },
+    { label: "wholemeal (dry weight)", calories: 348, protein: 14, carbs: 64, fat: 2.5 },
+    { label: "gluten free (cooked)", calories: 138, protein: 2.8, carbs: 30, fat: 0.9 },
+  ],
+  "rice": [
+    { label: "white (cooked)", calories: 130, protein: 2.7, carbs: 28, fat: 0.3 },
+    { label: "brown (cooked)", calories: 123, protein: 2.6, carbs: 26, fat: 1 },
+    { label: "basmati (cooked)", calories: 131, protein: 3.5, carbs: 28, fat: 0.4 },
+    { label: "white (dry weight)", calories: 361, protein: 6.7, carbs: 80, fat: 0.4 },
+    { label: "brown (dry weight)", calories: 357, protein: 7.5, carbs: 75, fat: 2.8 },
+  ],
+  "eggs": [
+    { label: "whole egg (large)", calories: 155, protein: 13, carbs: 1.1, fat: 11 },
+    { label: "egg white only", calories: 52, protein: 11, carbs: 0.7, fat: 0.2 },
+    { label: "scrambled (with butter & milk)", calories: 166, protein: 9.5, carbs: 1.8, fat: 13.5 },
+    { label: "poached", calories: 143, protein: 12, carbs: 0.4, fat: 10 },
+    { label: "fried (in oil)", calories: 196, protein: 14, carbs: 0.4, fat: 15 },
+    { label: "boiled", calories: 155, protein: 13, carbs: 1.1, fat: 11 },
+  ],
+  "oats": [
+    { label: "dry oats / porridge oats", calories: 389, protein: 17, carbs: 66, fat: 7 },
+    { label: "porridge (made with water)", calories: 46, protein: 1.7, carbs: 8.3, fat: 1 },
+    { label: "porridge (made with whole milk)", calories: 71, protein: 2.5, carbs: 12, fat: 1.4 },
+    { label: "overnight oats", calories: 130, protein: 5.1, carbs: 18, fat: 3.7 },
+  ],
+};
