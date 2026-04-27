@@ -178,41 +178,42 @@ function FoodEntry({ entry, onDelete, onEdit }) {
   const [mode, setMode] = useState('quantity'); // 'quantity' | 'manual'
 
   function startEdit() {
-    // Store base-per-100 if not already known
+    // basePer100 stores macros per 100g. If not present, derive from current macros.
+    // entry.amount is the actual grams/ml logged (e.g. 150g). Default to 100 if unknown.
+    const loggedAmount = entry.amount || 100;
     const b = entry.basePer100 || {
-      calories: entry.calories,
-      protein: entry.protein,
-      carbs: entry.carbs,
-      fat: entry.fat,
-      amount: entry.amount || 100,
+      // If we have no base, back-calculate per-100 from current values and logged amount
+      calories: Math.round((entry.calories / loggedAmount) * 100),
+      protein: Math.round((entry.protein / loggedAmount) * 1000) / 10,
+      carbs:   Math.round((entry.carbs   / loggedAmount) * 1000) / 10,
+      fat:     Math.round((entry.fat     / loggedAmount) * 1000) / 10,
     };
     setBase(b);
-    // Pre-fill qty from stored amount, default 100
-    setQty(String(entry.amount || 100));
+    // Show the actual logged amount (not 100) so user sees what they entered
+    setQty(String(loggedAmount));
     setUnit(entry.unit || 'g');
     setDraft({ food: entry.food, calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat });
     setMode('quantity');
     setEditing(true);
   }
 
-  // Recalculate macros when qty changes (quantity mode)
-  function recalcFromQty(newQty, newUnit) {
+  // Recalculate macros from per-100g base when qty changes
+  function recalcFromQty(newQty) {
     if (!base) return;
     const amount = parseFloat(newQty) || 0;
-    // treat ml same as g for density purposes
-    const factor = amount / base.amount;
-    setDraft({
-      food: draft.food,
+    const factor = amount / 100; // base is always per-100g
+    setDraft(d => ({
+      food: d.food,
       calories: Math.round(base.calories * factor),
       protein: Math.round(base.protein * factor * 10) / 10,
-      carbs: Math.round(base.carbs * factor * 10) / 10,
-      fat: Math.round(base.fat * factor * 10) / 10,
-    });
+      carbs:   Math.round(base.carbs   * factor * 10) / 10,
+      fat:     Math.round(base.fat     * factor * 10) / 10,
+    }));
   }
 
   function handleQtyChange(v) {
     setQty(v);
-    recalcFromQty(v, unit);
+    recalcFromQty(v);
   }
 
   function handleSave() {
@@ -220,13 +221,12 @@ function FoodEntry({ entry, onDelete, onEdit }) {
     onEdit(entry.id, {
       ...draft,
       calories: +draft.calories,
-      protein: +draft.protein,
-      carbs: +draft.carbs,
-      fat: +draft.fat,
+      protein:  +draft.protein,
+      carbs:    +draft.carbs,
+      fat:      +draft.fat,
       amount,
       unit,
-      // save base so future edits can re-scale correctly
-      basePer100: base,
+      basePer100: base, // always save so future edits scale correctly
     });
     setEditing(false);
   }
@@ -263,9 +263,13 @@ function FoodEntry({ entry, onDelete, onEdit }) {
               AMOUNT (macros scale automatically)
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <input type="number" min="0" step="1" value={qty}
+              <input
+                type="number" min="0" max="99999" step="1"
+                value={qty}
                 onChange={e => handleQtyChange(e.target.value)}
-                style={{ ...inpStyle(COLORS.calories), flex: 2, fontSize: 16, padding: '8px 10px', fontWeight: 700 }} />
+                onFocus={e => e.target.select()}
+                placeholder="e.g. 150"
+                style={{ ...inpStyle(COLORS.calories), flex: 2, fontSize: 18, padding: '8px 10px', fontWeight: 700 }} />
               <select value={unit} onChange={e => { setUnit(e.target.value); }}
                 style={{ flex: 1, background: '#0a1628', border: '1px solid #334155', borderRadius: 6,
                   color: '#94a3b8', fontFamily: 'monospace', fontSize: 12, padding: '5px 6px' }}>
@@ -773,15 +777,27 @@ export default function App() {
     const result = lookupFood(query);
     if (result) {
       // Check if this food has variants
-      const q = query.toLowerCase().replace(/^\d.*?\s+/, '').replace(/s$/, '').trim();
+      const q = query.toLowerCase().replace(/^[\d.]+\s*(g|ml|l|kg|oz|grams?)?\s+/, '').replace(/s$/, '').trim();
       const varKey = Object.keys(FOOD_VARIANTS).find(k => q.includes(k) || k.includes(q));
       if (varKey) {
-        // Show variant picker — pre-fill input with matched key for context
         setInput(varKey);
         setVariantKey(varKey);
         return;
       }
-      addEntry(result); setInput(''); inputRef.current?.focus(); return;
+      // Derive the logged amount from the query (e.g. "150g chicken" → 150)
+      const metricMatch = query.match(/^([\d.]+)\s*(g|ml|l(?:itres?)?)/i);
+      const loggedAmount = metricMatch ? parseFloat(metricMatch[1]) : 100;
+      const loggedUnit = metricMatch ? (metricMatch[2].toLowerCase().startsWith('l') ? 'ml' : metricMatch[2].toLowerCase()) : 'g';
+      // Store per-100 base so quantity can be adjusted later
+      const factor = loggedAmount / 100;
+      const basePer100 = {
+        calories: factor > 0 ? Math.round(result.calories / factor) : result.calories,
+        protein:  factor > 0 ? Math.round((result.protein  / factor) * 10) / 10 : result.protein,
+        carbs:    factor > 0 ? Math.round((result.carbs    / factor) * 10) / 10 : result.carbs,
+        fat:      factor > 0 ? Math.round((result.fat      / factor) * 10) / 10 : result.fat,
+      };
+      addEntry({ ...result, amount: loggedAmount, unit: loggedUnit, basePer100 });
+      setInput(''); inputRef.current?.focus(); return;
     }
     // Not in local DB — search Open Food Facts
     setOffLoading(true);
