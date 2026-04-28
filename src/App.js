@@ -1149,6 +1149,12 @@ export default function App() {
         }
         return newDiary;
       });
+      // Add to recents so it appears in Quick Add and can be starred
+      if (user && result.food) {
+        dbUpsertRecent(user.id, result).then(() =>
+          dbLoadRecents(user.id).then(setRecents)
+        ).catch(() => {});
+      }
     } else {
       setError('Barcode not found. Try typing the product name.');
     }
