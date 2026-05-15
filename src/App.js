@@ -112,6 +112,25 @@ async function dbDeleteMealTemplate(userId, id) {
   await supabase.from('meal_templates').delete().eq('id', id).eq('user_id', userId);
 }
 
+// ─── Goals helpers ────────────────────────────────────────────────────────────
+const DEFAULT_GOALS = { calories: 2000, protein: 150, carbs: 200, fat: 65 };
+const GOALS_LOCAL_KEY = 'macro-goals';
+
+async function dbLoadGoals(userId) {
+  const { data } = await supabase
+    .from('user_goals')
+    .select('goals')
+    .eq('user_id', userId)
+    .single();
+  return data?.goals || null;
+}
+
+async function dbSaveGoals(userId, goals) {
+  await supabase
+    .from('user_goals')
+    .upsert({ user_id: userId, goals }, { onConflict: 'user_id' });
+}
+
 // ─── Open Food Facts search ───────────────────────────────────────────────────
 async function searchOFF(query) {
   const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments,serving_quantity,serving_size&lc=en&countries_tags=en:united-kingdom`;
@@ -558,7 +577,7 @@ function DayDetail({ dateStr, entries, onClose }) {
         <div style={{ overflowY: 'auto', padding: '16px 20px', flex: 1 }}>
           <div style={{ background: '#0a1628', borderRadius: 12, padding: '16px 8px', marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 16 }}>
-              {[['calories', totals.calories, DAILY_GOALS.calories, COLORS.calories], ['protein', totals.protein, DAILY_GOALS.protein, COLORS.protein], ['carbs', totals.carbs, DAILY_GOALS.carbs, COLORS.carbs], ['fat', totals.fat, DAILY_GOALS.fat, COLORS.fat]].map(([l, v, g, c]) => (
+              {[['calories', totals.calories, goals.calories, COLORS.calories], ['protein', totals.protein, goals.protein, COLORS.protein], ['carbs', totals.carbs, goals.carbs, COLORS.carbs], ['fat', totals.fat, goals.fat, COLORS.fat]].map(([l, v, g, c]) => (
                 <MacroRing key={l} label={l} value={v} goal={g} color={c} />
               ))}
             </div>
@@ -703,6 +722,75 @@ function ManualEntryModal({ onAdd, onClose }) {
                 padding: 12, color: '#94a3b8', fontSize: 14,
                 cursor: 'pointer', fontFamily: 'monospace' }}>
               Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GoalsModal({ goals, onSave, onClose }) {
+  const [draft, setDraft] = useState({ ...goals });
+
+  const fields = [
+    { key: 'calories', label: 'Calories', unit: 'kcal', color: '#22c55e', hint: 'Typical range: 1500–3000' },
+    { key: 'protein',  label: 'Protein',  unit: 'g',    color: '#f97316', hint: 'Typical range: 100–250g' },
+    { key: 'carbs',    label: 'Carbs',    unit: 'g',    color: '#3b82f6', hint: 'Typical range: 150–350g' },
+    { key: 'fat',      label: 'Fat',      unit: 'g',    color: '#a855f7', hint: 'Typical range: 40–120g' },
+  ];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#000000cc', zIndex: 200,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: '100%', maxWidth: 400, background: '#0a1628', borderRadius: 16,
+        border: '1px solid #1e293b', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '14px 16px', borderBottom: '1px solid #1e293b' }}>
+          <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>🎯 Daily Targets</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 22 }}>✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <p style={{ color: '#475569', fontSize: 12, fontFamily: 'monospace', marginBottom: 16, lineHeight: 1.6 }}>
+            Set your personal daily macro targets. These are used for the progress rings.
+          </p>
+          {fields.map(({ key, label, unit, color, hint }) => (
+            <div key={key} style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={{ fontSize: 12, color, fontFamily: 'monospace', fontWeight: 700 }}>{label}</span>
+                <span style={{ fontSize: 11, color: '#334155', fontFamily: 'monospace' }}>{hint}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="text" inputMode="decimal"
+                  value={draft[key]}
+                  onChange={e => {
+                    const v = e.target.value.replace(/[^0-9]/g, '');
+                    setDraft(d => ({ ...d, [key]: v === '' ? '' : parseInt(v) }));
+                  }}
+                  onFocus={e => e.target.select()}
+                  style={{ flex: 1, background: '#0f172a', border: '1px solid #1e293b',
+                    borderRadius: 8, padding: '10px 12px', color, fontFamily: 'monospace',
+                    fontSize: 18, fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
+                  onMouseOver={e => e.target.style.borderColor = color}
+                  onMouseOut={e => e.target.style.borderColor = '#1e293b'}
+                />
+                <span style={{ color: '#475569', fontFamily: 'monospace', fontSize: 13, minWidth: 28 }}>{unit}</span>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={() => onSave(draft)}
+              style={{ flex: 1, background: '#f97316', border: 'none', borderRadius: 10,
+                padding: 12, color: 'white', fontWeight: 700, fontSize: 14,
+                cursor: 'pointer', fontFamily: 'monospace' }}>
+              Save targets
+            </button>
+            <button onClick={() => { onSave({ ...DEFAULT_GOALS }); }}
+              style={{ background: '#1e293b', border: 'none', borderRadius: 10,
+                padding: '12px 14px', color: '#94a3b8', fontSize: 12,
+                cursor: 'pointer', fontFamily: 'monospace' }}>
+              Reset
             </button>
           </div>
         </div>
@@ -963,6 +1051,8 @@ export default function App() {
   const [favourites, setFavourites] = useState([]);
   const [recents, setRecents] = useState([]);
   const [mealTemplates, setMealTemplates] = useState([]);
+  const [goals, setGoals] = useState(DEFAULT_GOALS);
+  const [showGoals, setShowGoals] = useState(false);
   const inputRef = useRef(null);
   const today = todayStr();
 
@@ -982,8 +1072,10 @@ export default function App() {
       dbLoadFavourites(user.id).then(setFavourites).catch(() => {});
       dbLoadRecents(user.id).then(setRecents).catch(() => {});
       dbLoadMealTemplates(user.id).then(setMealTemplates).catch(() => {});
+      dbLoadGoals(user.id).then(g => { if (g) setGoals(g); }).catch(() => {});
     } else {
       try { const s = localStorage.getItem(LOCAL_KEY); if (s) setDiary(JSON.parse(s)); } catch {}
+      try { const g = localStorage.getItem(GOALS_LOCAL_KEY); if (g) setGoals(JSON.parse(g)); } catch {}
       setFavourites([]); setRecents([]); setMealTemplates([]);
     }
   }, [user]);
@@ -1039,10 +1131,21 @@ export default function App() {
   }
 
   async function handleAddTemplate(entries) {
-    entries.forEach(e => {
+    // Build all entries at once — forEach + addEntry fails because each addEntry
+    // reads stale todayEntries state, so only the first item gets saved
+    const newItems = entries.map((e, i) => {
       const { id: _id, ...rest } = e;
-      addEntry({ ...rest, source: 'text' });
+      return { ...rest, source: 'text', id: Date.now() + i };
     });
+    const newDiary = { ...diary, [today]: [...todayEntries, ...newItems] };
+    saveDiary(newDiary);
+    // Track each item in recents
+    if (user) {
+      for (const item of newItems) {
+        if (item.food) await dbUpsertRecent(user.id, item).catch(() => {});
+      }
+      dbLoadRecents(user.id).then(setRecents).catch(() => {});
+    }
   }
 
   async function handleSaveAsTemplate(name) {
@@ -1055,6 +1158,23 @@ export default function App() {
     if (!user) return;
     await dbDeleteMealTemplate(user.id, id);
     setMealTemplates(prev => prev.filter(t => t.id !== id));
+  }
+
+  async function handleSaveGoals(newGoals) {
+    // Validate — ensure all values are positive numbers
+    const validated = {
+      calories: Math.max(1, parseInt(newGoals.calories) || DEFAULT_GOALS.calories),
+      protein:  Math.max(1, parseInt(newGoals.protein)  || DEFAULT_GOALS.protein),
+      carbs:    Math.max(1, parseInt(newGoals.carbs)    || DEFAULT_GOALS.carbs),
+      fat:      Math.max(1, parseInt(newGoals.fat)      || DEFAULT_GOALS.fat),
+    };
+    setGoals(validated);
+    setShowGoals(false);
+    if (user) {
+      dbSaveGoals(user.id, validated).catch(() => {});
+    } else {
+      try { localStorage.setItem(GOALS_LOCAL_KEY, JSON.stringify(validated)); } catch {}
+    }
   }
 
   function handleAdd(value) {
@@ -1177,6 +1297,7 @@ export default function App() {
       {detailDate && <DayDetail dateStr={detailDate} entries={diary[detailDate] || []} onClose={() => setDetailDate(null)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {showManual && <ManualEntryModal onAdd={handleManualAdd} onClose={() => setShowManual(false)} />}
+      {showGoals && <GoalsModal goals={goals} onSave={handleSaveGoals} onClose={() => setShowGoals(false)} />}
 
       <div style={{ minHeight: '100vh', background: '#020817', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '28px 16px 60px' }}>
         <div style={{ width: '100%', maxWidth: 500 }}>
@@ -1194,18 +1315,32 @@ export default function App() {
               {user ? (
                 <div>
                   <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>{user.email || 'Logged in'}</div>
-                  <button onClick={() => supabase.auth.signOut()}
-                    style={{ background: '#1e293b', border: 'none', borderRadius: 8, padding: '6px 12px', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontFamily: 'monospace' }}>
-                    Log out
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setShowGoals(true)}
+                      title="Adjust daily targets"
+                      style={{ background: '#1e293b', border: 'none', borderRadius: 8, padding: '6px 10px', color: '#f97316', fontSize: 14, cursor: 'pointer' }}>
+                      🎯
+                    </button>
+                    <button onClick={() => supabase.auth.signOut()}
+                      style={{ background: '#1e293b', border: 'none', borderRadius: 8, padding: '6px 12px', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontFamily: 'monospace' }}>
+                      Log out
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div>
                   <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>Guest mode</div>
-                  <button onClick={() => setShowAuth(true)}
-                    style={{ background: '#f97316', border: 'none', borderRadius: 8, padding: '6px 12px', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace' }}>
-                    Log in / Sign up
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setShowGoals(true)}
+                      title="Adjust daily targets"
+                      style={{ background: '#1e293b', border: 'none', borderRadius: 8, padding: '6px 10px', color: '#f97316', fontSize: 14, cursor: 'pointer' }}>
+                      🎯
+                    </button>
+                    <button onClick={() => setShowAuth(true)}
+                      style={{ background: '#f97316', border: 'none', borderRadius: 8, padding: '6px 12px', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace' }}>
+                      Log in / Sign up
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1231,7 +1366,7 @@ export default function App() {
           {view === 'today' && <>
             <div style={{ background: '#0a1628', border: '1px solid #1e293b', borderRadius: 16, padding: '20px 16px', marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', marginBottom: totals.calories > 0 ? 16 : 0 }}>
-                {[['calories', totals.calories, DAILY_GOALS.calories, COLORS.calories], ['protein', totals.protein, DAILY_GOALS.protein, COLORS.protein], ['carbs', totals.carbs, DAILY_GOALS.carbs, COLORS.carbs], ['fat', totals.fat, DAILY_GOALS.fat, COLORS.fat]].map(([l, v, g, c]) => (
+                {[['calories', totals.calories, goals.calories, COLORS.calories], ['protein', totals.protein, goals.protein, COLORS.protein], ['carbs', totals.carbs, goals.carbs, COLORS.carbs], ['fat', totals.fat, goals.fat, COLORS.fat]].map(([l, v, g, c]) => (
                   <MacroRing key={l} label={l} value={v} goal={g} color={c} />
                 ))}
               </div>
