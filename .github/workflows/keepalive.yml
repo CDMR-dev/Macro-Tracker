@@ -1,0 +1,12 @@
+name: Keep Supabase awake
+on:
+  schedule:
+    - cron: '0 9 * * 1,4'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s --fail "https://panssaghpbilpiwbsdvy.supabase.co/rest/v1/diary?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}"
